@@ -24,7 +24,7 @@ ras_pipe_t* head = NULL;
 
 ras_pipe_t* tail = NULL;
 
-int exec_coms( char* input , char* output ,int pipe_num );
+int exec_com( char* input , char* output ,int pipe_num, int nfd);
 
 void insert_ras_pipe(char *insert_buffer,int insert_counter);
 
@@ -76,8 +76,6 @@ int main( int argc, char *argv[] )
     listen(sockfd,5);
     clilen = sizeof(cli_addr);
 
-    while(1){
-
     newsockfd = accept(sockfd, (struct sockaddr *)&cli_addr,&clilen); 
     if (newsockfd < 0) 
     {
@@ -124,10 +122,10 @@ int main( int argc, char *argv[] )
 			if( tmp[0] == '|')
 			{
 				if( tmp[1] == 0 )
-					pipe_counter=1*2;
+					pipe_counter=1;
 				else
 				{ 
-					pipe_counter=atoi(&tmp[1])*2;
+					pipe_counter=atoi(&tmp[1]);
 				}
 				if( !strncmp( commands , "exit " , 5) || ( strlen(commands) == 4 && !strncmp( commands , "exit" , 4 ) ) )
 					return 0;
@@ -153,7 +151,7 @@ int main( int argc, char *argv[] )
                                 }
 				else 
 				{
-					if( exec_coms(commands,pipe_output,pipe_counter) > 0 )
+					if( exec_com(commands,pipe_output,pipe_counter,newsockfd) > 0 )
 					{
 						bzero(commands,BUFFER_SIZE);
 						printf("failed\n");
@@ -195,7 +193,7 @@ int main( int argc, char *argv[] )
 			printallenv();
                 }
 		else  	
-			exec_coms(commands,pipe_output,pipe_counter);
+			exec_com(commands,pipe_output,pipe_counter,newsockfd);
 		bzero(commands,BUFFER_SIZE);
 		pipe_counter = 0;
 	}
@@ -212,13 +210,12 @@ int main( int argc, char *argv[] )
     return 0; 
 }
 
-int exec_coms( char *input , char *output , int pipe_num )
+int exec_com( char *input , char *output , int pipe_num ,int nfd)
 {
 	FILE *fptr = NULL;
 	char *tok, *ftok, *file_name, input_tmp[BUFFER_SIZE];
 	char pipe_input_buffer[BUFFER_SIZE];
-	int is_pop = 0;
-	if( pop_ras_pipe(pipe_input_buffer )) is_pop = 1;
+	pop_ras_pipe(pipe_input_buffer);
 	int to_file = 0;
 	strcpy(input_tmp,input);
 	input_tmp[strlen(input_tmp)-1] = 0;
@@ -257,7 +254,8 @@ int exec_coms( char *input , char *output , int pipe_num )
 	}
         else 
 		dup2(pipe_fd[1], STDOUT_FILENO);
-        dup2(pipe_fd[1], STDERR_FILENO);
+        //dup2(pipe_fd[1], STDERR_FILENO);
+        dup2(nfd, STDERR_FILENO);
 	dup2(pipe2_fd[0], STDIN_FILENO);
         close(pipe_fd[1]);
         close(pipe2_fd[0]);
@@ -293,7 +291,6 @@ int exec_coms( char *input , char *output , int pipe_num )
 	//char pipe_input_buffer[BUFFER_SIZE];
 	//pop_ras_pipe(pipe_input_buffer);
 	//printf("test\n");
-		
 	write(pipe2_fd[1],pipe_input_buffer,BUFFER_SIZE);
 	//fprintf(pipe2_fd[1],pipe_input_buffer,BUFFER_SIZE);
 	close(pipe2_fd[1]);
@@ -321,7 +318,6 @@ int exec_coms( char *input , char *output , int pipe_num )
 	}
 */  
     }
-	}
     return EXIT_SUCCESS;
 }
 
