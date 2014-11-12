@@ -35,10 +35,14 @@ int list_plist(plist *plptr);
 
 int inc_counter_plist( plist* plptr);
 
+void welcomeMessage( int sockbuff[], int sockidx );
+
 int main( int argc, char *argv[] )
 {
     int PORT_NO, sockfd, newsockfd, clilen, isServing, bytesReceived;
     int status;
+    int sockbuff[1024];
+    int sockidx = 0;
     pid_t PID;
     pid_t PID2;
 //    char buffer[BUF_SIZE];
@@ -142,7 +146,6 @@ int main( int argc, char *argv[] )
                     parsingCommand(plptr,linebuff,NULL,newsockfd);
                     list_plist(plptr);
                     free(linebuff);
-    
                 }
             }
             else
@@ -153,7 +156,9 @@ int main( int argc, char *argv[] )
         else
         {
             waitpid(PID,&status,NULL);
-            close( newsockfd );
+            welcomeMessage(sockbuff,sockidx);
+            sockbuff[sockidx++] = newsockfd;
+            //close( newsockfd );
         }
         
     }
@@ -444,7 +449,6 @@ int execCommand(plist* plptr, char **argv, int args, char **outstr, const int so
         close(pipe1[1]);
         close(pipe2[0]);
 //        close(sock);
-        //fprintf(stderr,"test\n");
         if( !strcmp(argv[0],"printenv") )
         {
             printf("%s=%s\n",argv[1],getenv(argv[1]));
@@ -498,4 +502,15 @@ int execCommand(plist* plptr, char **argv, int args, char **outstr, const int so
         return EXIT_SUCCESS;
     }
     return EXIT_SUCCESS;
+}
+
+void welcomeMessage( int sockbuff[], int sockidx )
+{
+    int i;
+    char message[1024];
+    sprintf(message,"user [%d] is online.\n",sockidx);
+    for( i = 0 ; i < sockidx ; i++ )
+    {
+        send( sockbuff[i], message, strlen(message), 0);
+    }
 }
