@@ -44,6 +44,8 @@ int inc_counter_plist( plist* plptr);
 
 void welcomeMessage( int servsockfd, int clisockfd, struct sockaddr_in *cli_addr );
 
+void GlobalMessage( int servsockfd, char* message );
+
 int main( int argc, char *argv[] )
 {
     int PORT_NO, servsockfd, clisockfd, clilen, isServing, bytesReceived;
@@ -170,9 +172,11 @@ int main( int argc, char *argv[] )
                                 break;
                             }
                         }
+                        linebuff[lenght-1] = 0;
+                        if( linebuff[0] == 0 )
+                                send(fdptr,"% ",2,0);
                         if( recvret <= 0 )
                         {
-                            linebuff[lenght-1] = 0;
                             if( linebuff[lenght-2] == '\r' ) linebuff[lenght-2] = 0;
                             printf("Recv : %s \n", linebuff);
                             if( strlen(linebuff) == 4 && !strncmp(linebuff,"exit",4) )
@@ -199,11 +203,42 @@ int main( int argc, char *argv[] )
                                     }
                                     send( fdptr, whomessage, strlen(whomessage), 0 );
                                 }
+                                else if( !strncmp(linebuff,"name ",5) )
+                                {
+                                    char namemessage[256];
+                                    int dupname = 0;
+                                    for( i = 0 ; i < useridx ; i++ )
+                                    {
+                                        if( userlist[i].status == 1 )
+                                        {
+                                            if( !strcmp( userlist[i].name , &linebuff[5] ) )
+                                            {
+                                                dupname = 1;
+                                                sprintf(namemessage,"*** User '%s' already exists. ***\n",&linebuff[5]);
+                                                send(fdptr,namemessage,strlen(namemessage),0);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if( !dupname )
+                                    {
+                                        for( i = 0 ; i < useridx ; i++ )
+                                        {
+                                            if( userlist[i].status == 1 && userlist[i].fd == fdptr )
+                                            {
+                                                strcpy( userlist[i].name , &linebuff[5] );
+                                                break;
+                                            }
+                                        }
+                                        sprintf(namemessage,"*** User from %s/%d is named '%s'. ***\n",userlist[i].IP,userlist[i].port,userlist[i].name);
+                                        GlobalMessage(servsockfd,namemessage);
+                                    }
+                                }
                                 else
                                 {
                                     parsingCommand(pipelist[fdptr],linebuff,NULL,fdptr);
-                                    free(linebuff);
                                 }
+                                free(linebuff);
                                 send(fdptr,"% ",2,0);
                             }
                         }
@@ -552,6 +587,15 @@ void welcomeMessage( int servsockfd, int clisockfd, struct sockaddr_in* cli_addr
     int fdptr;
     char message[1024];
     sprintf(message,"*** User '(no name)' entered from %s/%d. ***\n",inet_ntoa(cli_addr->sin_addr), cli_addr->sin_port);
+    for( fdptr = 0 ; fdptr < FD_SETSIZE ; fdptr++ )
+    {
+        if( fdptr != servsockfd ) send( fdptr, message, strlen(message), 0);
+    }
+}
+
+void GlobalMessage( int servsockfd, char* message )
+{
+    int fdptr;
     for( fdptr = 0 ; fdptr < FD_SETSIZE ; fdptr++ )
     {
         if( fdptr != servsockfd ) send( fdptr, message, strlen(message), 0);
