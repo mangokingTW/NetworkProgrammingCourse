@@ -22,12 +22,19 @@ typedef struct {
 } plist;
 
 typedef struct {
+    char* key;
+    char* value;
+}userenv;
+
+typedef struct {
     int ID;
     int fd;
     char name[32];
     char IP[15];
     int port;
     int status;
+    userenv env[128];
+    int envnum;
 } user;
 
 int parsingCommand(plist* plptr, char *instr, char** out, int sock);
@@ -46,13 +53,17 @@ void welcomeMessage( int servsockfd, int clisockfd, struct sockaddr_in *cli_addr
 
 void GlobalMessage( int servsockfd, char* message );
 
+void usersetenv( user *ulist, int uid, char* key, char* value);
+
+char *usergetenv( user *ulist, int uid, char* key );
+
 int main( int argc, char *argv[] )
 {
     int PORT_NO, servsockfd, clisockfd, clilen, isServing, bytesReceived;
     int status;
     int i;
 
-    user userlist[1024];
+    user *userlist = malloc(sizeof(user)*1024);
     int useridx = 0;
 
     for( i = 0 ; i < 1024 ; i++ )
@@ -139,6 +150,7 @@ int main( int argc, char *argv[] )
                             strcpy(userlist[i].name,"(no name)");
                             strcpy(userlist[i].IP,inet_ntoa(cli_addr.sin_addr));
                             userlist[i].status = 1;
+                            userlist[i].envnum = 0;
                             break;
                         }
                     }
@@ -150,6 +162,7 @@ int main( int argc, char *argv[] )
                         strcpy(userlist[useridx].name,"(no name)");
                         strcpy(userlist[useridx].IP,inet_ntoa(cli_addr.sin_addr));
                         userlist[useridx].status = 1;
+                        userlist[i].envnum = 0;
                         useridx++;
                     }
                     send(clisockfd,"****************************************\n",41,0);
@@ -323,6 +336,35 @@ int main( int argc, char *argv[] )
                                         send(fdptr,tellmessage,strlen(tellmessage),0);
                                     }
 
+                                }
+                                else if( !strncmp(linebuff,"setenv ",7) )
+                                {
+                                    for( i = 0 ; i < useridx ; i++ )
+                                    {
+                                        if( userlist[i].status == 1 && userlist[i].fd == fdptr )
+                                        {
+                                            break;
+                                        }
+                                    }
+                                    int uid = i;
+                                    for( i = 7 ; linebuff[i] != ' ' ; i++ );
+                                    linebuff[i] = 0;
+                                    i++;
+                                    usersetenv(userlist,uid,&linebuff[7],&linebuff[i]);
+                                }
+                                else if( !strncmp(linebuff,"printenv ",9) )
+                                {
+                                    char printenvmessage[1024];
+                                    for( i = 0 ; i < useridx ; i++ )
+                                    {
+                                        if( userlist[i].status == 1 && userlist[i].fd == fdptr )
+                                        {
+                                            break;
+                                        }
+                                    }
+                                    int uid = i;
+                                    sprintf(printenvmessage,"%s=%s\n",&linebuff[9],usergetenv(userlist,uid,&linebuff[9]));
+                                    send(fdptr,printenvmessage,strlen(printenvmessage),0);
                                 }
                                 else
                                 {
@@ -690,4 +732,39 @@ void GlobalMessage( int servsockfd, char* message )
     {
         if( fdptr != servsockfd ) send( fdptr, message, strlen(message), 0);
     }
+}
+
+void usersetenv( user *ulist, int uid, char* key, char* value)
+{
+    int i;
+    for(  i = 0 ; i < ulist[uid].envnum ; i ++ )
+    {
+        if( ulist[uid].env[i].key != NULL && !strcmp(ulist[uid].env[i].key,key) )
+        {
+            ulist[uid].env[i].value = malloc( sizeof(char)*(strlen(value)+1) );
+            strcpy(ulist[uid].env[i].value,value);
+            ulist[uid].env[i].value[strlen(value)] = 0;
+            return ;
+        }
+    }
+    ulist[uid].env[i].key = malloc( sizeof(char)*(strlen(key)+1) );
+    strcpy(ulist[uid].env[i].key,key);
+    ulist[uid].env[i].key[strlen(key)] = 0;
+    ulist[uid].env[i].value = malloc( sizeof(char)*(strlen(value)+1) );
+    strcpy(ulist[uid].env[i].value,value);
+    ulist[uid].env[i].value[strlen(value)] = 0;
+    ulist[uid].envnum++;
+}
+
+char *usergetenv( user *ulist, int uid, char* key )
+{
+    int i;
+    for(  i = 0 ; i < ulist[uid].envnum ; i ++ )
+    {
+        if( ulist[uid].env[i].key != NULL && !strcmp(ulist[uid].env[i].key,key) )
+        {
+            return ulist[uid].env[i].value;
+        }
+    }
+    return NULL;
 }
