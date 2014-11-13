@@ -297,6 +297,33 @@ int main( int argc, char *argv[] )
                                     }
                                     GlobalMessage(servsockfd,yellmessage);
                                 }
+                                else if( !strncmp(linebuff,"tell ",5) )
+                                {
+                                    char tellmessage[102400];
+                                    for( i = 0 ; i < useridx ; i++ )
+                                    {
+                                        if( userlist[i].status == 1 && userlist[i].fd == fdptr )
+                                        {
+                                            break;
+                                        }
+                                    }
+                                    int fromid = i;
+                                    for( i = 5 ; linebuff[i] != ' ' ; i++ );
+                                    linebuff[i] = 0;
+                                    i++;
+                                    int tellid = atoi(&linebuff[5]);
+                                    if( userlist[tellid].status )
+                                    {
+                                        sprintf(tellmessage,"*** %s told you ***: %s\n",userlist[fromid].name,&linebuff[i]);
+                                        send(userlist[tellid].fd,tellmessage,strlen(tellmessage),0);
+                                    }
+                                    else
+                                    {
+                                        sprintf(tellmessage,"*** Error: user #%d does not exist yet. ***\n",tellid);
+                                        send(fdptr,tellmessage,strlen(tellmessage),0);
+                                    }
+
+                                }
                                 else
                                 {
                                     parsingCommand(pipelist[fdptr],linebuff,NULL,fdptr);
