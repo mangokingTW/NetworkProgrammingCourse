@@ -8,9 +8,6 @@
 #include <signal.h>
 #include <unistd.h>
 
-//#define BUF_SIZE 1024
-
-
 typedef struct _pipe_node {
     int counter;
     char *str;
@@ -43,16 +40,25 @@ int main( int argc, char *argv[] )
     int status;
     int sockbuff[1024];
     int sockidx = 0;
+
+    int pipelist[1024];
+    int pipeidx = 0;
+    
+    char HOMEDIR[256];
+    
+    fd_set infd, bakfd;
+    
     pid_t PID;
     pid_t PID2;
-//    char buffer[BUF_SIZE];
 
     struct sockaddr_in serv_addr, cli_addr;
+
     if( argc != 2 ) PORT_NO = 5001;
     else PORT_NO = atoi(argv[1]);
-    char HOMEDIR[256];
+
     strcpy(HOMEDIR,getenv("HOME"));
     strcat(HOMEDIR,"/ras");
+    
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if( sockfd < 0 )
     {
@@ -73,7 +79,7 @@ int main( int argc, char *argv[] )
     
     isServing = 1;
 
-    //signal(SIGCHLD, SIG_IGN);
+    FD_ZERO(&infd);
 
     while ( isServing ) 
     {
@@ -141,6 +147,7 @@ int main( int argc, char *argv[] )
                     printf("Recv : %s \n", linebuff);
                     if( !strncmp(linebuff,"exit",4) )
                     {
+                        close(newsockfd);
                         exit(EXIT_SUCCESS);
                     }
                     parsingCommand(plptr,linebuff,NULL,newsockfd);
@@ -158,7 +165,6 @@ int main( int argc, char *argv[] )
             waitpid(PID,&status,NULL);
             welcomeMessage(sockbuff,sockidx);
             sockbuff[sockidx++] = newsockfd;
-            //close( newsockfd );
         }
         
     }
@@ -167,7 +173,7 @@ int main( int argc, char *argv[] )
 
 int push_plist( plist *plptr, char* instr, int counter)
 {
-    if( instr == NULL )return EXIT_FAILURE;
+    if( instr == NULL ) return EXIT_FAILURE;
     pipe_node* newnode = malloc( sizeof( pipe_node ) );
     newnode->counter = counter;
     newnode->str = malloc( strlen(instr) * sizeof(char) );
@@ -200,7 +206,6 @@ int pop_plist( plist* plptr, char** outstr)
     while( ptr != NULL )
     {
         ptr->counter--;
-        //printf("plist[%d]='%s'\n",ptr->counter,ptr->str);
         if( ptr->counter == 0 )
         {
             pipe_node *tmp = ptr->next;
@@ -394,8 +399,6 @@ int execCommand(plist* plptr, char **argv, int args, char **outstr, const int so
     if( !strcmp(argv[0],"setenv") )
     {
         setenv(argv[1],argv[2],1);
-        //if( *outstr != NULL ) free(*outstr);
-        //*outstr = NULL;
         return EXIT_SUCCESS;
     }
     int pipe1[2], pipe2[2];
@@ -443,18 +446,15 @@ int execCommand(plist* plptr, char **argv, int args, char **outstr, const int so
         {
             dup2(pipe1[1],STDOUT_FILENO);
         }
-//        dup2(pipe1[1],STDOUT_FILENO);
         dup2(sock,STDERR_FILENO);
         dup2(pipe2[0],STDIN_FILENO);
         close(pipe1[1]);
         close(pipe2[0]);
-//        close(sock);
         if( !strcmp(argv[0],"printenv") )
         {
             printf("%s=%s\n",argv[1],getenv(argv[1]));
             exit(EXIT_SUCCESS);
         }
-        //fprintf(stderr,"Unknown command: [%s].\n",argv[0]);
         execvp(argv[0],argv);
         fprintf(stderr,"Unknown command: [%s].\n",argv[0]);
         exit(EXIT_FAILURE);
