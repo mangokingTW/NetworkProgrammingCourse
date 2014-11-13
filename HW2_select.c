@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <unistd.h>
@@ -20,6 +21,15 @@ typedef struct {
     pipe_node* tail;
 } plist;
 
+typedef struct {
+    int ID;
+    int fd;
+    char name[32];
+    char IP[15];
+    int port;
+    int status;
+} user;
+
 int parsingCommand(plist* plptr, char *instr, char** out, int sock);
 
 int execCommand(plist* plptr, char **argv, int args, char **outstr, const int sock );
@@ -32,17 +42,27 @@ int list_plist(plist *plptr);
 
 int inc_counter_plist( plist* plptr);
 
-void welcomeMessage( int sockbuff[], int sockidx );
+void welcomeMessage( int servsockfd, int clisockfd, struct sockaddr_in *cli_addr );
 
 int main( int argc, char *argv[] )
 {
     int PORT_NO, servsockfd, clisockfd, clilen, isServing, bytesReceived;
     int status;
-    int sockbuff[1024];
-    int sockidx = 0;
+    int i;
 
-    int pipelist[1024];
-    int pipeidx = 0;
+    user userlist[1024];
+    int useridx = 0;
+
+    for( i = 0 ; i < 1024 ; i++ )
+    {
+        userlist[i].status = 0;
+    }
+
+    plist **pipelist = malloc( 1024*sizeof(plist *) );
+    for( i = 0 ; i < 1024 ; i++ )
+    {
+        pipelist[i] = malloc(sizeof(plist));
+    }
     
     char HOMEDIR[256];
     
@@ -107,6 +127,17 @@ int main( int argc, char *argv[] )
                     clisockfd = accept( servsockfd, (struct sockaddr *)&cli_addr, &clilen );
                     FD_SET(clisockfd,&infd);
                     printf("Client Accepted : %d\n",clisockfd);
+                    userlist[useridx].ID = useridx;
+                    userlist[useridx].fd = clisockfd;
+                    userlist[useridx].port = cli_addr.sin_port;
+                    strcpy(userlist[useridx].name,"(no name)");
+                    strcpy(userlist[useridx].IP,inet_ntoa(cli_addr.sin_addr));
+                    userlist[useridx].status = 1;
+                    useridx++;
+                    send(clisockfd,"****************************************\n",41,0);
+                    send(clisockfd,"** Welcome to the information server. **\n",41,0);
+                    send(clisockfd,"****************************************\n",41,0);
+                    welcomeMessage(servsockfd, clisockfd, &cli_addr);
                     send(clisockfd,"% ",2,0);
                 }
                 else
@@ -114,117 +145,73 @@ int main( int argc, char *argv[] )
                     char recvchar[1] = {0};
                     char *linebuff = malloc( 2*sizeof(char) );
                     int lenght = 1;
+                    int recvret;
                     int i;
-                    if(recv( fdptr, recvchar, 1, 0 ) <= 0)
+                    if( (recvret = recv( fdptr, recvchar, 1, 0 )) <= 0)
                     {
-                        exit( EXIT_SUCCESS );
+                        fprintf(stderr,"Recieve error code : %d\n",recvret );
+                        close(fdptr);
+                        FD_CLR(fdptr,&infd);
                     }
-                    while( recvchar[0] != '\n' )
+                    else
                     {
-                        linebuff = realloc(linebuff, (lenght+1)*sizeof(char) );
-                        linebuff[lenght-1] = recvchar[0];
-                        lenght++;
-                        recvchar[0] = 0;
-                        recvchar[1] = 0;
-                        if(recv( fdptr, recvchar, 1, 0 ) <= 0)
+                        while( recvchar[0] != '\n' )
                         {
-                            exit( EXIT_SUCCESS );
+                            linebuff = realloc(linebuff, (lenght+1)*sizeof(char) );
+                            linebuff[lenght-1] = recvchar[0];
+                            lenght++;
+                            recvchar[0] = 0;
+                            recvchar[1] = 0;
+                            if( (recvret = recv( fdptr, recvchar, 1, 0 ) <= 0) )
+                            {
+                                fprintf(stderr,"Recieve error code : %d\n",recvret );
+                                close(fdptr);
+                                FD_CLR(fdptr,&infd);
+                                break;
+                            }
+                        }
+                        if( recvret <= 0 )
+                        {
+                            linebuff[lenght-1] = 0;
+                            if( linebuff[lenght-2] == '\r' ) linebuff[lenght-2] = 0;
+                            printf("Recv : %s \n", linebuff);
+                            if( strlen(linebuff) == 4 && !strncmp(linebuff,"exit",4) )
+                            {
+                                close(fdptr);
+                                FD_CLR(fdptr,&infd);
+                            }
+                            else 
+                            {
+                                if( !strcmp(linebuff,"who") )
+                                {
+                                    char whomessage[102400];
+                                    sprintf(whomessage,"<ID>\t<nickname>\t<IP/port>\t<indicate me>\n");
+                                    for( i = 0 ; i < useridx ; i++ )
+                                    {
+                                        if( userlist[i].status == 1 && userlist[i].fd == fdptr )
+                                        {
+                                            sprintf(whomessage,"%s%d\t%s\t%s/%d\t<-me\n",whomessage,userlist[i].ID,userlist[i].name,userlist[i].IP,userlist[i].port);
+                                        }
+                                        else if( userlist[i].status == 1 )
+                                        {
+                                            sprintf(whomessage,"%s%d\t%s\t%s/%d\n",whomessage,userlist[i].ID,userlist[i].name,userlist[i].IP,userlist[i].port);
+                                        }
+                                    }
+                                    send( fdptr, whomessage, strlen(whomessage), 0 );
+                                }
+                                else
+                                {
+                                    parsingCommand(pipelist[fdptr],linebuff,NULL,fdptr);
+                                    free(linebuff);
+                                }
+                                send(fdptr,"% ",2,0);
+                            }
                         }
                     }
-                    linebuff[lenght-1] = 0;
-                    if( linebuff[lenght-2] == '\r' ) linebuff[lenght-2] = 0;
-                    printf("Recv : %s \n", linebuff);
-                    send(clisockfd,"% ",2,0);
                 }
             }
         }
     }
-/*
-        while ( isServing ) 
-    {
-        newsockfd = accept(sockfd, (struct sockaddr *)&cli_addr,&clilen);
-    
-        if (newsockfd < 0)
-        {
-            perror("ERROR: Unable to accept.");
-            exit(1);
-        }
-        
-        if( ( PID = fork() ) < 0 )
-        {
-            perror("Error: Unable to create child process.");
-        }
-        else if( PID == 0 )
-        {
-            if( (PID2 = fork()) < 0 )
-            {
-                perror("Error: Unable to create child process.");
-            }
-            else if( PID2 == 0 )
-            {
-                close(sockfd);
-
-                setenv("PATH","bin:.",1);
-                printf("%s  %s\n",homedir,getenv("PATH"));
-                plist* plptr = malloc(sizeof(plist));
-                plptr->head = NULL;
-                plptr->tail = NULL;
-                send(newsockfd,"****************************************\n",41,0);
-                send(newsockfd,"** Welcome to the information server. **\n",41,0);
-                send(newsockfd,"****************************************\n",41,0);
-                while ( 1 )
-                {
-                    char recvchar[1];
-                    char *linebuff = malloc( 2*sizeof(char) );
-                    int lenght = 1;
-                    int i;
-                    recvchar[0] = 0;
-                    recvchar[1] = 0;
-                    send(newsockfd,"% ",2,0);
-                    if(recv( newsockfd, recvchar, 1, 0 ) <= 0)
-                    {
-                        exit( EXIT_SUCCESS );
-                    }
-
-                    while( recvchar[0] != '\n' )
-                    {
-                        linebuff = realloc(linebuff, (lenght+1)*sizeof(char) );
-                        linebuff[lenght-1] = recvchar[0];
-                        lenght++;
-                        recvchar[0] = 0;
-                        recvchar[1] = 0;
-                        if(recv( newsockfd, recvchar, 1, 0 ) <= 0)
-                        {
-                            exit( EXIT_SUCCESS );
-                        }
-                    }
-                    linebuff[lenght-1] = 0;
-                    if( linebuff[lenght-2] == '\r' ) linebuff[lenght-2] = 0;
-                    printf("Recv : %s \n", linebuff);
-                    if( !strncmp(linebuff,"exit",4) )
-                    {
-                        close(newsockfd);
-                        exit(EXIT_SUCCESS);
-                    }
-                    parsingCommand(plptr,linebuff,NULL,newsockfd);
-                    list_plist(plptr);
-                    free(linebuff);
-                }
-            }
-            else
-            {
-                exit(0);
-            }
-        }
-        else
-        {
-            waitpid(PID,&status,NULL);
-            welcomeMessage(sockbuff,sockidx);
-            sockbuff[sockidx++] = newsockfd;
-        }
-        
-    }
-*/
     return 0;
 }
 
@@ -288,7 +275,6 @@ int pop_plist( plist* plptr, char** outstr)
         }
         else ptr = ptr->next;
     }
-
     printf("pop:\n%s\n end\n",*outstr);
     return ispop;
 }
@@ -329,7 +315,7 @@ int parsingCommand(plist* plptr, char *instr, char** out, int sock )
     
     for( i = 0 ; i <= instrL ; i++ )
     {
-        printf("i=%d\n",i);
+       // printf("i=%d\n",i);
        if( i == instrL )
        {
            char **output = malloc(sizeof(char*));
@@ -339,9 +325,9 @@ int parsingCommand(plist* plptr, char *instr, char** out, int sock )
            argv[args - 1] = malloc(sizeof(char)*tokL);
            argv[args] = NULL;
            memcpy(argv[args - 1],tok,tokL*sizeof(char));
-           printf("arg[%d] = %s\n",args,argv[args - 1]);
+        //   printf("arg[%d] = %s\n",args,argv[args - 1]);
            int tmpsock = sock;
-           printf("%d\n",sock);
+        //   printf("%d\n",sock);
            if(strlen(tok)>0)
            {
               if( execCommand(plptr,argv,args,output,sock) != 0 )
@@ -354,14 +340,14 @@ int parsingCommand(plist* plptr, char *instr, char** out, int sock )
               }
            }
            sock = tmpsock;
-           printf("%d\n",sock);
+        //   printf("%d\n",sock);
            if(*output!=NULL)
            {
-               printf("send : \n%s\n",*output);
+        //       printf("send : \n%s\n",*output);
                send(sock,*output,strlen(*output),0);
                free(*output);
            }
-           printf("send end\n");
+        //   printf("send end\n");
            free(tok);
            free(output);
            tok = malloc(2*sizeof(char));
@@ -386,14 +372,14 @@ int parsingCommand(plist* plptr, char *instr, char** out, int sock )
                strncpy(tmp,&instr[i-j],j);
                pipecounter = atoi(tmp);
            }
-           printf("PC=%d\n",pipecounter);
+        //   printf("PC=%d\n",pipecounter);
            int tmpsock = sock;
            if( execCommand(plptr,argv,args,output,sock) != 0 )
            {
                sock = tmpsock;
                while( args > 0 )
                {
-                printf("free %s.\n",argv[args-1]);
+        //        printf("free %s.\n",argv[args-1]);
                 free(argv[args-1]);
                 args--;
                }
@@ -410,7 +396,7 @@ int parsingCommand(plist* plptr, char *instr, char** out, int sock )
 
            while( args > 0 )
            {
-               printf("free %s.\n",argv[args-1]);
+         //      printf("free %s.\n",argv[args-1]);
                free(argv[args-1]);
                args--;
            }
@@ -433,7 +419,7 @@ int parsingCommand(plist* plptr, char *instr, char** out, int sock )
            argv[args - 1] = malloc(sizeof(char)*tokL);
            memcpy(argv[args - 1],tok,tokL*sizeof(char));
            argv[args] = NULL;
-           printf("arg[%d] = %s\n",args,argv[args - 1]);
+        //   printf("arg[%d] = %s\n",args,argv[args - 1]);
            free(tok);
            tok = malloc(2*sizeof(char));
            tok[0] = 0;
@@ -561,13 +547,13 @@ int execCommand(plist* plptr, char **argv, int args, char **outstr, const int so
     return EXIT_SUCCESS;
 }
 
-void welcomeMessage( int sockbuff[], int sockidx )
+void welcomeMessage( int servsockfd, int clisockfd, struct sockaddr_in* cli_addr )
 {
-    int i;
+    int fdptr;
     char message[1024];
-    sprintf(message,"user [%d] is online.\n",sockidx);
-    for( i = 0 ; i < sockidx ; i++ )
+    sprintf(message,"*** User '(no name)' entered from %s/%d. ***\n",inet_ntoa(cli_addr->sin_addr), cli_addr->sin_port);
+    for( fdptr = 0 ; fdptr < FD_SETSIZE ; fdptr++ )
     {
-        send( sockbuff[i], message, strlen(message), 0);
+        if( fdptr != servsockfd ) send( fdptr, message, strlen(message), 0);
     }
 }
