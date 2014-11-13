@@ -129,13 +129,29 @@ int main( int argc, char *argv[] )
                     clisockfd = accept( servsockfd, (struct sockaddr *)&cli_addr, &clilen );
                     FD_SET(clisockfd,&infd);
                     printf("Client Accepted : %d\n",clisockfd);
-                    userlist[useridx].ID = useridx;
-                    userlist[useridx].fd = clisockfd;
-                    userlist[useridx].port = cli_addr.sin_port;
-                    strcpy(userlist[useridx].name,"(no name)");
-                    strcpy(userlist[useridx].IP,inet_ntoa(cli_addr.sin_addr));
-                    userlist[useridx].status = 1;
-                    useridx++;
+                    for( i = 0 ; i < useridx ; i++ )
+                    {
+                        if( userlist[i].status == 0 )
+                        {
+                            userlist[i].ID = i;
+                            userlist[i].fd = clisockfd;
+                            userlist[i].port = cli_addr.sin_port;
+                            strcpy(userlist[i].name,"(no name)");
+                            strcpy(userlist[i].IP,inet_ntoa(cli_addr.sin_addr));
+                            userlist[i].status = 1;
+                            break;
+                        }
+                    }
+                    if( i == useridx )
+                    {
+                        userlist[useridx].ID = useridx;
+                        userlist[useridx].fd = clisockfd;
+                        userlist[useridx].port = cli_addr.sin_port;
+                        strcpy(userlist[useridx].name,"(no name)");
+                        strcpy(userlist[useridx].IP,inet_ntoa(cli_addr.sin_addr));
+                        userlist[useridx].status = 1;
+                        useridx++;
+                    }
                     send(clisockfd,"****************************************\n",41,0);
                     send(clisockfd,"** Welcome to the information server. **\n",41,0);
                     send(clisockfd,"****************************************\n",41,0);
@@ -152,8 +168,20 @@ int main( int argc, char *argv[] )
                     if( (recvret = recv( fdptr, recvchar, 1, 0 )) <= 0)
                     {
                         fprintf(stderr,"Recieve error code : %d\n",recvret );
+                        char exitmessage[256];
+                        for( i = 0 ; i < useridx ; i++ )
+                        {
+                            if( userlist[i].status == 1 && userlist[i].fd == fdptr )
+                            {
+                                sprintf(exitmessage,"*** User '%s' left. ***\n",userlist[i].name);
+                                userlist[i].status = 0;
+                                break;
+                            }
+                        }
                         close(fdptr);
                         FD_CLR(fdptr,&infd);
+                        GlobalMessage(servsockfd,exitmessage);
+                        break;
                     }
                     else
                     {
@@ -167,8 +195,19 @@ int main( int argc, char *argv[] )
                             if( (recvret = recv( fdptr, recvchar, 1, 0 ) <= 0) )
                             {
                                 fprintf(stderr,"Recieve error code : %d\n",recvret );
+                                char exitmessage[256];
+                                for( i = 0 ; i < useridx ; i++ )
+                                {
+                                    if( userlist[i].status == 1 && userlist[i].fd == fdptr )
+                                    {
+                                        sprintf(exitmessage,"*** User '%s' left. ***\n",userlist[i].name);
+                                        userlist[i].status = 0;
+                                        break;
+                                    }
+                                }
                                 close(fdptr);
                                 FD_CLR(fdptr,&infd);
+                                GlobalMessage(servsockfd,exitmessage);
                                 break;
                             }
                         }
@@ -181,8 +220,19 @@ int main( int argc, char *argv[] )
                             printf("Recv : %s \n", linebuff);
                             if( strlen(linebuff) == 4 && !strncmp(linebuff,"exit",4) )
                             {
+                                char exitmessage[256];
+                                for( i = 0 ; i < useridx ; i++ )
+                                {
+                                    if( userlist[i].status == 1 && userlist[i].fd == fdptr )
+                                    {
+                                        sprintf(exitmessage,"*** User '%s' left. ***\n",userlist[i].name);
+                                        userlist[i].status = 0;
+                                        break;
+                                    }
+                                }
                                 close(fdptr);
                                 FD_CLR(fdptr,&infd);
+                                GlobalMessage(servsockfd,exitmessage);
                             }
                             else 
                             {
