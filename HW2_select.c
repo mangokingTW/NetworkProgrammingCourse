@@ -234,6 +234,19 @@ int main( int argc, char *argv[] )
                                         GlobalMessage(servsockfd,namemessage);
                                     }
                                 }
+                                else if( !strncmp(linebuff,"yell ",5) )
+                                {
+                                    char yellmessage[102400];
+                                    for( i = 0 ; i < useridx ; i++ )
+                                    {
+                                        if( userlist[i].status == 1 && userlist[i].fd == fdptr )
+                                        {
+                                            sprintf(yellmessage,"*** %s yelled ***: %s\n",userlist[i].name,&linebuff[5]);
+                                            break;
+                                        }
+                                    }
+                                    GlobalMessage(servsockfd,yellmessage);
+                                }
                                 else
                                 {
                                     parsingCommand(pipelist[fdptr],linebuff,NULL,fdptr);
