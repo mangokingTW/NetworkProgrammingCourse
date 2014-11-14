@@ -24,7 +24,12 @@ typedef struct {
 typedef struct {
     char* key;
     char* value;
-}userenv;
+} userenv;
+
+typedef struct {
+    int from;
+    char message[1024];
+} mespipe;
 
 typedef struct {
     int ID;
@@ -35,11 +40,13 @@ typedef struct {
     int status;
     userenv env[128];
     int envnum;
+    mespipe mpbuff[10];
+    int pipemesnum;
 } user;
 
-int parsingCommand(plist* plptr, char *instr, char** out, int sock);
+int parsingCommand( user* ulist, plist* plptr, char *instr, char** out, int serversock, int sock, int myuid );
 
-int execCommand(plist* plptr, char **argv, int args, char **outstr, const int sock );
+int execCommand( user* ulist, plist* plptr, char **argv, int args, char **outstr, const int sock, int myuid, char** retmessage);
 
 int push_plist( plist *plptr, char* instr, int counter);
 
@@ -64,7 +71,7 @@ int main( int argc, char *argv[] )
     int i;
 
     user *userlist = malloc(sizeof(user)*1024);
-    int useridx = 0;
+    int useridx = 1;
 
     for( i = 0 ; i < 1024 ; i++ )
     {
@@ -89,7 +96,7 @@ int main( int argc, char *argv[] )
     strcpy(homedir,getenv("HOME"));
     strcat(homedir,"/ras");
     chdir(homedir);
-
+    printf("home %s\n",homedir);
     if( argc != 2 ) PORT_NO = 5001;
     else PORT_NO = atoi(argv[1]);
 
@@ -140,7 +147,7 @@ int main( int argc, char *argv[] )
                     clisockfd = accept( servsockfd, (struct sockaddr *)&cli_addr, &clilen );
                     FD_SET(clisockfd,&infd);
                     printf("Client Accepted : %d\n",clisockfd);
-                    for( i = 0 ; i < useridx ; i++ )
+                    for( i = 1 ; i < useridx ; i++ )
                     {
                         if( userlist[i].status == 0 )
                         {
@@ -151,6 +158,13 @@ int main( int argc, char *argv[] )
                             strcpy(userlist[i].IP,inet_ntoa(cli_addr.sin_addr));
                             userlist[i].status = 1;
                             userlist[i].envnum = 0;
+                            int j ;
+                            for( j = 0 ; j < 10 ; j ++ )
+                            {
+                                userlist[i].mpbuff[j].from = -1;
+                                bzero(userlist[i].mpbuff[j].message,1024);
+                            }
+                            userlist[i].pipemesnum = 0;
                             break;
                         }
                     }
@@ -163,8 +177,16 @@ int main( int argc, char *argv[] )
                         strcpy(userlist[useridx].IP,inet_ntoa(cli_addr.sin_addr));
                         userlist[useridx].status = 1;
                         userlist[i].envnum = 0;
+                        int j ;
+                        for( j = 0 ; j < 10 ; j ++ )
+                        {
+                            userlist[i].mpbuff[j].from = -1;
+                            bzero(userlist[i].mpbuff[j].message,1024);
+                        }
+                        userlist[i].pipemesnum = 0;
                         useridx++;
                     }
+                    usersetenv(userlist,i,"PATH","bin:.");
                     send(clisockfd,"****************************************\n",41,0);
                     send(clisockfd,"** Welcome to the information server. **\n",41,0);
                     send(clisockfd,"****************************************\n",41,0);
@@ -231,7 +253,7 @@ int main( int argc, char *argv[] )
                         {
                             if( linebuff[lenght-2] == '\r' ) linebuff[lenght-2] = 0;
                             printf("Recv : %s \n", linebuff);
-                            if( strlen(linebuff) == 4 && !strncmp(linebuff,"exit",4) )
+                            if( !strncmp(linebuff,"exit",4) )
                             {
                                 char exitmessage[256];
                                 for( i = 0 ; i < useridx ; i++ )
@@ -324,7 +346,7 @@ int main( int argc, char *argv[] )
                                     for( i = 5 ; linebuff[i] != ' ' ; i++ );
                                     linebuff[i] = 0;
                                     i++;
-                                    int tellid = atoi(&linebuff[5]);
+                                    int tellid = atoi(&linebuff[5]) ;
                                     if( userlist[tellid].status )
                                     {
                                         sprintf(tellmessage,"*** %s told you ***: %s\n",userlist[fromid].name,&linebuff[i]);
@@ -368,7 +390,14 @@ int main( int argc, char *argv[] )
                                 }
                                 else
                                 {
-                                    parsingCommand(pipelist[fdptr],linebuff,NULL,fdptr);
+                                    for( i = 1 ; i < useridx ; i++ )
+                                    {
+                                        if( userlist[i].status == 1 && userlist[i].fd == fdptr )
+                                        {
+                                            break;
+                                        }
+                                    }
+                                    parsingCommand(userlist,pipelist[fdptr],linebuff,NULL,servsockfd,fdptr,i);
                                 }
                                 free(linebuff);
                                 send(fdptr,"% ",2,0);
@@ -469,7 +498,7 @@ int inc_counter_plist( plist* plptr)
     }
 }
 
-int parsingCommand(plist* plptr, char *instr, char** out, int sock )
+int parsingCommand( user* ulist, plist* plptr, char *instr, char** out, int serversock, int sock, int myuid )
 {
     int instrL = strlen(instr);
     int i;
@@ -477,6 +506,8 @@ int parsingCommand(plist* plptr, char *instr, char** out, int sock )
     int tokL = 1;
     char *tok = malloc(2*sizeof(char));
     char **argv = malloc(sizeof(char));
+    char **retmessage = malloc(sizeof(char*));
+    *retmessage = NULL;
     tok[0] = 0;
     argv[0] = NULL;
     
@@ -495,16 +526,19 @@ int parsingCommand(plist* plptr, char *instr, char** out, int sock )
         //   printf("arg[%d] = %s\n",args,argv[args - 1]);
            int tmpsock = sock;
         //   printf("%d\n",sock);
+
+           if( *retmessage != NULL ) free(*retmessage);
+           *retmessage = NULL;
            if(strlen(tok)>0)
            {
-              if( execCommand(plptr,argv,args,output,sock) != 0 )
-              {
-                  sock = tmpsock;
-                  if(*output != NULL )free(*output);
-                  free(tok);
-                  free(output);
-                  break;
-              }
+               if( execCommand(ulist,plptr,argv,args,output,sock,myuid,retmessage) != 0 )
+               {
+                   sock = tmpsock;
+                   if(*output != NULL )free(*output);
+                   free(tok);
+                   free(output);
+                   break;
+               }
            }
            sock = tmpsock;
         //   printf("%d\n",sock);
@@ -515,6 +549,8 @@ int parsingCommand(plist* plptr, char *instr, char** out, int sock )
                free(*output);
            }
         //   printf("send end\n");
+
+           if( *retmessage != NULL ) GlobalMessage(serversock,*retmessage);
            free(tok);
            free(output);
            tok = malloc(2*sizeof(char));
@@ -541,7 +577,9 @@ int parsingCommand(plist* plptr, char *instr, char** out, int sock )
            }
         //   printf("PC=%d\n",pipecounter);
            int tmpsock = sock;
-           if( execCommand(plptr,argv,args,output,sock) != 0 )
+           if( *retmessage != NULL ) free(*retmessage);
+           *retmessage = NULL;
+           if( execCommand(ulist,plptr,argv,args,output,sock,myuid,retmessage) != 0 )
            {
                sock = tmpsock;
                while( args > 0 )
@@ -560,6 +598,8 @@ int parsingCommand(plist* plptr, char *instr, char** out, int sock )
            sock = tmpsock;
 
            push_plist(plptr,*output,pipecounter);
+           
+           if( *retmessage != NULL ) GlobalMessage(serversock,*retmessage);
 
            while( args > 0 )
            {
@@ -604,7 +644,7 @@ int parsingCommand(plist* plptr, char *instr, char** out, int sock )
     return 0;
 }
 
-int execCommand(plist* plptr, char **argv, int args, char **outstr, const int sock )
+int execCommand( user* ulist, plist* plptr, char **argv, int args, char **outstr, const int sock, int myuid, char** retmessage )
 {
     if( !strcmp(argv[0],"setenv") )
     {
@@ -612,8 +652,41 @@ int execCommand(plist* plptr, char **argv, int args, char **outstr, const int so
         return EXIT_SUCCESS;
     }
     int pipe1[2], pipe2[2];
-    int iii , tofile = 0;
+    int iii , tofile = 0, touser = 0, fromuser = 0, touid, fromuid;
+    char filename[256];
     FILE *fptr = NULL;
+        tofile = 0;
+        touser = 0;
+        fromuser = 0;
+        for( iii = 0 ; iii < args ; iii++ )
+        {
+            if( argv[iii] == NULL )
+            {
+                break;
+            }
+            else if( argv[iii][0] == '>' && argv[iii][1] == 0 )
+            {
+                printf("A status\n");
+                strcpy(filename,argv[iii+1]);
+                argv[iii] = NULL;
+                tofile = 1;
+                continue;
+            }
+            else if( argv[iii][0] == '>' )
+            {
+                printf("B status\n");
+                touser = 1;
+                touid = atoi(&argv[iii][1]);
+                argv[iii] = NULL;
+                continue;
+            }
+            if ( argv[iii][0] == '<' && argv[iii][1] != 0 )
+            {
+                fromuser = 1;
+                fromuid = atoi(&argv[iii][1]);
+                argv[iii] = NULL;
+            }
+        }
     if(pipe(pipe1) == -1 )
     {
         perror("Error: Unable to create pipe.");
@@ -632,32 +705,29 @@ int execCommand(plist* plptr, char **argv, int args, char **outstr, const int so
     }
     else if (PID == 0)
     {
+        int i;
+        for( i = 0 ; i < ulist[myuid].envnum ; i++ )
+        {
+            setenv(ulist[myuid].env[i].key,ulist[myuid].env[i].value,1);
+        }
         close(pipe2[1]);
         close(pipe1[0]);
-        tofile = 0;
-        for( iii = 0 ; iii < args ; iii++ )
-        {
-            if( argv[iii][0] == '>' )
-            {
-                argv[iii] = NULL;
-                tofile = 1;
-                break;
-            }
 
-        }
-
-        if( tofile == 1 )
+        dup2(pipe2[0],STDIN_FILENO);
+        if( tofile )
         {
-            fptr = fopen(argv[iii+1],"w");
+            fptr = fopen(filename,"w");
             dup2(fileno(fptr),STDOUT_FILENO);
             close(fileno(fptr));
+            dup2(sock,STDERR_FILENO);
         }
         else
         {
             dup2(pipe1[1],STDOUT_FILENO);
+            if( touser ) dup2(pipe1[1],STDERR_FILENO);
+            else dup2(sock,STDERR_FILENO);
         }
-        dup2(sock,STDERR_FILENO);
-        dup2(pipe2[0],STDIN_FILENO);
+
         close(pipe1[1]);
         close(pipe2[0]);
         if( !strcmp(argv[0],"printenv") )
@@ -680,7 +750,44 @@ int execCommand(plist* plptr, char **argv, int args, char **outstr, const int so
         close(pipe2[0]);
         close(pipe1[1]);
         printf("start pop\n");
-        if( pop_plist(plptr,input) )
+        int ispop = pop_plist(plptr,input) ;
+        if( fromuser )
+        {
+            printf("Recieving messages from user#%d to #%d\n",fromuid,myuid);
+            int i;
+            for( i = 0 ; i < 10 ; i++ )
+            {
+                if( ulist[myuid].mpbuff[i].from == fromuid )
+                {
+                    *retmessage = malloc(sizeof(char)*1024);
+                    sprintf(*retmessage,"*** %s (#%d) just received from %s (#%d) by '",ulist[myuid].name,myuid,ulist[fromuid].name,fromuid);
+                    printf("Get : %s\n",ulist[myuid].mpbuff[i].message);
+                    write(pipe2[1],ulist[myuid].mpbuff[i].message,1024);
+                    ulist[myuid].mpbuff[i].from = -1;
+                    bzero(ulist[myuid].mpbuff[i].message,1024);
+                    ulist[touid].pipemesnum--;
+                    int j ;
+                    for( j = 0 ; argv[j] != NULL ; j++ )
+                    {
+                        strcat(*retmessage,argv[j]);
+                        strcat(*retmessage," ");
+                    }
+                    sprintf(*retmessage,"%s<%d' ***\n",*retmessage,fromuid);
+                    break;
+                }
+            }
+            if( i == 10 )
+            {
+                char errmessage[256];
+                sprintf(errmessage,"*** Error: the pipe #%d->#%d does not exist yet. ***\n",fromuid,myuid);
+                send(ulist[myuid].fd,errmessage,strlen(errmessage),0);
+                close(pipe2[1]);
+                wait(&status);
+                free(output);
+                return EXIT_FAILURE;
+            }
+        }
+        else if( ispop )
         {
             printf("pop : %s\n",*input);
             write(pipe2[1],*input,strlen(*input));
@@ -705,8 +812,40 @@ int execCommand(plist* plptr, char **argv, int args, char **outstr, const int so
         output[oL] =0;
         close(pipe1[0]);
         if( *outstr != NULL ) free(*outstr);
-        *outstr = malloc((oL+1)*sizeof(char));
-        memcpy(*outstr,output,(oL+1)*sizeof(char));
+        if( touser )
+        {
+            printf("piping to user ....\n");
+            int i;
+            for( i = 0 ; i < 10 ; i++ )
+                if ( ulist[touid].mpbuff[i].from == myuid )
+                {
+                    char errmessage[256];
+                    sprintf(errmessage,"*** Error: the pipe #%d->#%d already exists. ***\n",myuid,touid);
+                    send(ulist[myuid].fd,errmessage,strlen(errmessage),0);
+                    free(output);
+                    return EXIT_FAILURE;
+                }
+            for( i = 0 ; i < 10 ; i++ )
+                if ( ulist[touid].mpbuff[i].from == -1 ) break;
+            if( *retmessage == NULL ) *retmessage = malloc(sizeof(char)*1024);
+            sprintf(*retmessage,"*** %s (#%d) just piped '",ulist[myuid].name,myuid);
+            int j ;
+            for( j = 0 ; argv[j] != NULL ; j++ )
+            {
+                strcat(*retmessage,argv[j]);
+                strcat(*retmessage," ");
+            }
+            sprintf(*retmessage,"%s>%d' to %s (#%d) ***\n",*retmessage,touid,ulist[touid].name,touid);
+            strncpy(ulist[touid].mpbuff[i].message,output,1024);
+            ulist[touid].mpbuff[i].from = myuid;
+            ulist[touid].pipemesnum++;
+            printf("Completed in %d buffer! %s\n",i,ulist[touid].mpbuff[i].message);
+        }
+        else
+        {
+            *outstr = malloc((oL+1)*sizeof(char));
+            memcpy(*outstr,output,(oL+1)*sizeof(char));
+        }
         printf("output :%d\n%s\n",sock,*outstr);
         free(output);
         return EXIT_SUCCESS;
