@@ -431,6 +431,7 @@ int main( int argc, char *argv[] )
                                         }
                                         sprintf(namemessage,"*** User from %s/%d is named '%s'. ***\n",userlist[i].IP,userlist[i].port,userlist[i].name);
                                         GlobalMessage(servsockfd,namemessage,userlist);
+                                        while( strlen(userlist[myid].mesg) != 0 );
                                     }
                                 }
                                 else if( !strncmp(linebuff,"yell ",5) )
@@ -445,6 +446,7 @@ int main( int argc, char *argv[] )
                                         }
                                     }
                                     GlobalMessage(servsockfd,yellmessage,userlist);
+                                        while( strlen(userlist[myid].mesg) != 0 );
                                 }
                                 else if( !strncmp(linebuff,"tell ",5) )
                                 {
@@ -669,6 +671,7 @@ int parsingCommand( user* ulist, plist* plptr, char *instr, char** out, int serv
            }
 
            if( *retmessage != NULL ) GlobalMessage(serversock,*retmessage,ulist);
+                                        while( strlen(ulist[myuid].mesg) != 0 );
            free(tok);
            free(output);
            tok = malloc(2*sizeof(char));
@@ -716,6 +719,7 @@ int parsingCommand( user* ulist, plist* plptr, char *instr, char** out, int serv
            push_plist(plptr,*output,pipecounter);
            
            if( *retmessage != NULL ) GlobalMessage(serversock,*retmessage,ulist);
+                                        while( strlen(ulist[myuid].mesg) != 0 );
 
            while( args > 0 )
            {
