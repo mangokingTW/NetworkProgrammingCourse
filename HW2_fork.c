@@ -3,11 +3,15 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/ipc.h> 
+#include <sys/shm.h> 
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <unistd.h>
+
+#define useridx (*useridxptr)
 
 typedef struct _pipe_node {
     int counter;
@@ -42,6 +46,7 @@ typedef struct {
     int envnum;
     mespipe mpbuff[10];
     int pipemesnum;
+    char mesg[65535];
 } user;
 
 int parsingCommand( user* ulist, plist* plptr, char *instr, char** out, int serversock, int sock, int myuid );
@@ -56,22 +61,51 @@ int list_plist(plist *plptr);
 
 int inc_counter_plist( plist* plptr);
 
-void welcomeMessage( int servsockfd, int clisockfd, struct sockaddr_in *cli_addr );
+void welcomeMessage( int servsockfd, int clisockfd, struct sockaddr_in *cli_addr, user* ulist );
 
-void GlobalMessage( int servsockfd, char* message );
+void GlobalMessage( int servsockfd, char* message, user* ulist );
 
 void usersetenv( user *ulist, int uid, char* key, char* value);
 
 char *usergetenv( user *ulist, int uid, char* key );
+
+//static user **ulptr;
 
 int main( int argc, char *argv[] )
 {
     int PORT_NO, servsockfd, clisockfd, clilen, isServing, bytesReceived;
     int status;
     int i;
+    
+//    ulptr = mmap(NULL, sizeof(*ulptr), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+//    *ulptr = malloc(sizeof(user)*1024);
+    key_t shkey = 1160901;
+    key_t shkey2 = 1160902;
+    int shmid = shmget(shkey, 1024*sizeof(user), SHM_R|SHM_W|IPC_CREAT);
+    if( shmid < 0 )
+    {
+   //     perror("shared memory error");
+    }
 
-    user *userlist = malloc(sizeof(user)*1024);
-    int useridx = 1;
+    printf("%d %d\n",shmid,1024*sizeof(user));
+    user *userlist = shmat(shmid, NULL ,0);
+
+    printf("%x\n",userlist);
+    int shmid2 = shmget(shkey2, sizeof(int), SHM_R|SHM_W|IPC_CREAT);
+    if( shmid2 < 0 )
+    {
+        perror("shared memory error");
+    }
+    int *useridxptr = shmat(shmid2, NULL ,0);
+    *useridxptr = 1;
+
+    printf("uidx %d\n",useridx);
+    //userlist = malloc(1024*sizeof(user));
+//    user tmplist[1024];
+//    user *userlist = mmap(NULL, sizeof(tmplist), PROT_READ | PROT_WRITE, MAP_SHARED |              MAP_ANONYMOUS, -1, 0);
+//    printf("%d\n",sizeof(userlist));    
+//
+//    int useridx = 1;
 
     for( i = 0 ; i < 1024 ; i++ )
     {
@@ -125,6 +159,8 @@ int main( int argc, char *argv[] )
     while( isServing )
     {
         clisockfd = accept(servsockfd, (struct sockaddr *)&cli_addr,&clilen);
+
+
         if( servsockfd < 0 )
         {
             perror("ERROR: Unable to accept.");
@@ -136,13 +172,12 @@ int main( int argc, char *argv[] )
         }
         else if( PID == 0 )
         {
-            if( (PID2 = fork()) < 0 )
-            {
-                perror("Error: Unable to create child process.");
-            }
-            else if( PID2 == 0 )
-            {
                 int fdptr = clisockfd;
+//                shmid = shmget(shkey, 1024*sizeof(user), SHM_R|SHM_W);
+//                userlist = shmat(shmid, NULL ,0);
+                useridxptr = shmat(shmid2, NULL ,0);
+                printf("uidx %d\n",useridx);
+                printf("online %d\n",userlist[1].status);
                 printf("Client Accepted : %d\n",clisockfd);
                 for( i = 1 ; i < useridx ; i++ )
                 {
@@ -164,6 +199,7 @@ int main( int argc, char *argv[] )
                         userlist[i].pipemesnum = 0;
                         break;
                     }
+                    else printf("fd %d\n",userlist[i].fd);
                 }
                 if( i == useridx )
                 {
@@ -182,12 +218,90 @@ int main( int argc, char *argv[] )
                     }
                     userlist[i].pipemesnum = 0;
                     useridx++;
+                    printf("fd %d\n",userlist[i].fd);
                 }
+            int myid = i;
+            if( (PID2 = fork()) < 0 )
+            {
+                perror("Error: Unable to create child process.");
+            }
+            else if( PID2 == 0 )
+            {
+                char tmp[65535];
+                while(1)
+                {
+                    if( userlist[myid].status == 0 )exit(0);
+                    if( strlen(userlist[myid].mesg) != 0 )
+                    {
+                        strcpy( tmp , userlist[myid].mesg );
+                        printf("sending ==> : %s\n",tmp);
+                        send(userlist[myid].fd,tmp,strlen(tmp),0);
+                        bzero(userlist[myid].mesg,65535);
+                    }
+                }
+                exit(0);
+            }
+            if( (PID2 = fork()) < 0 )
+            {
+                perror("Error: Unable to create child process.");
+            }
+            else if( PID2 == 0 )
+            {
+/*
+                int fdptr = clisockfd;
+//                shmid = shmget(shkey, 1024*sizeof(user), SHM_R|SHM_W);
+//                userlist = shmat(shmid, NULL ,0);
+                useridxptr = shmat(shmid2, NULL ,0);
+                printf("uidx %d\n",useridx);
+                printf("online %d\n",userlist[1].status);
+                printf("Client Accepted : %d\n",clisockfd);
+                for( i = 1 ; i < useridx ; i++ )
+                {
+                    if( userlist[i].status == 0 )
+                    {
+                        userlist[i].ID = i;
+                        userlist[i].fd = clisockfd;
+                        userlist[i].port = cli_addr.sin_port;
+                        strcpy(userlist[i].name,"(no name)");
+                        strcpy(userlist[i].IP,inet_ntoa(cli_addr.sin_addr));
+                        userlist[i].status = 1;
+                        userlist[i].envnum = 0;
+                        int j ;
+                        for( j = 0 ; j < 10 ; j ++ )
+                        {
+                            userlist[i].mpbuff[j].from = -1;
+                            bzero(userlist[i].mpbuff[j].message,1024);
+                        }
+                        userlist[i].pipemesnum = 0;
+                        break;
+                    }
+                    else printf("fd %d\n",userlist[i].fd);
+                }
+                if( i == useridx )
+                {
+                    userlist[useridx].ID = useridx;
+                    userlist[useridx].fd = clisockfd;
+                    userlist[useridx].port = cli_addr.sin_port;
+                    strcpy(userlist[useridx].name,"(no name)");
+                    strcpy(userlist[useridx].IP,inet_ntoa(cli_addr.sin_addr));
+                    userlist[useridx].status = 1;
+                    userlist[i].envnum = 0;
+                    int j ;
+                    for( j = 0 ; j < 10 ; j ++ )
+                    {
+                        userlist[i].mpbuff[j].from = -1;
+                        bzero(userlist[i].mpbuff[j].message,1024);
+                    }
+                    userlist[i].pipemesnum = 0;
+                    useridx++;
+                    printf("fd %d\n",userlist[i].fd);
+                }
+                */
                 usersetenv(userlist,i,"PATH","bin:.");
                 send(clisockfd,"****************************************\n",41,0);
                 send(clisockfd,"** Welcome to the information server. **\n",41,0);
                 send(clisockfd,"****************************************\n",41,0);
-                welcomeMessage(servsockfd, clisockfd, &cli_addr);
+                welcomeMessage(servsockfd, clisockfd, &cli_addr, userlist);
                 while(1)
                 {
                     send(clisockfd,"% ",2,0);
@@ -210,7 +324,7 @@ int main( int argc, char *argv[] )
                             }
                         }
                         close(fdptr);
-                        GlobalMessage(servsockfd,exitmessage);
+                        GlobalMessage(servsockfd,exitmessage,userlist);
                         exit(0);
                         break;
                     }
@@ -229,7 +343,7 @@ int main( int argc, char *argv[] )
                                 char exitmessage[256];
                                 for( i = 0 ; i < useridx ; i++ )
                                 {
-                                    if( userlist[i].status == 1 && userlist[i].fd == fdptr )
+                                    if( userlist[i].status == 1 && userlist[i].ID == myid)
                                     {
                                         sprintf(exitmessage,"*** User '%s' left. ***\n",userlist[i].name);
                                         userlist[i].status = 0;
@@ -237,14 +351,14 @@ int main( int argc, char *argv[] )
                                     }
                                 }
                                 close(fdptr);
-                                GlobalMessage(servsockfd,exitmessage);
+                                GlobalMessage(servsockfd,exitmessage,userlist);
                                 exit(0);
                                 break;
                             }
                         }
                         linebuff[lenght-1] = 0;
-                        if( linebuff[0] == 0 )
-                                send(fdptr,"% ",2,0);
+//                        if( linebuff[0] == 0 )
+//                                send(fdptr,"% ",2,0);
                         if( recvret <= 0 )
                         {
                             if( linebuff[lenght-2] == '\r' ) linebuff[lenght-2] = 0;
@@ -255,7 +369,7 @@ int main( int argc, char *argv[] )
                                 printf("A\n");
                                 for( i = 0 ; i < useridx ; i++ )
                                 {
-                                    if( userlist[i].status == 1 && userlist[i].fd == fdptr )
+                                    if( userlist[i].status == 1 && userlist[i].ID == myid )
                                     {
                                         sprintf(exitmessage,"*** User '%s' left. ***\n",userlist[i].name);
                                         userlist[i].status = 0;
@@ -264,7 +378,7 @@ int main( int argc, char *argv[] )
                                 }
                                 printf("B\n");
                                 close(fdptr);
-                                GlobalMessage(servsockfd,exitmessage);
+                                GlobalMessage(servsockfd,exitmessage,userlist);
                                 printf("C\n");
                                 exit(0);
                             }
@@ -274,9 +388,10 @@ int main( int argc, char *argv[] )
                                 {
                                     char whomessage[102400];
                                     sprintf(whomessage,"<ID>\t<nickname>\t<IP/port>\t<indicate me>\n");
+                                    printf("useridx %d\n",useridx);
                                     for( i = 0 ; i < useridx ; i++ )
                                     {
-                                        if( userlist[i].status == 1 && userlist[i].fd == fdptr )
+                                        if( userlist[i].status == 1 && userlist[i].ID == myid )
                                         {
                                             sprintf(whomessage,"%s%d\t%s\t%s/%d\t<-me\n",whomessage,userlist[i].ID,userlist[i].name,userlist[i].IP,userlist[i].port);
                                         }
@@ -308,14 +423,14 @@ int main( int argc, char *argv[] )
                                     {
                                         for( i = 0 ; i < useridx ; i++ )
                                         {
-                                            if( userlist[i].status == 1 && userlist[i].fd == fdptr )
+                                            if( userlist[i].status == 1 && userlist[i].ID == myid )
                                             {
                                                 strcpy( userlist[i].name , &linebuff[5] );
                                                 break;
                                             }
                                         }
                                         sprintf(namemessage,"*** User from %s/%d is named '%s'. ***\n",userlist[i].IP,userlist[i].port,userlist[i].name);
-                                        GlobalMessage(servsockfd,namemessage);
+                                        GlobalMessage(servsockfd,namemessage,userlist);
                                     }
                                 }
                                 else if( !strncmp(linebuff,"yell ",5) )
@@ -323,20 +438,20 @@ int main( int argc, char *argv[] )
                                     char yellmessage[102400];
                                     for( i = 0 ; i < useridx ; i++ )
                                     {
-                                        if( userlist[i].status == 1 && userlist[i].fd == fdptr )
+                                        if( userlist[i].status == 1 && userlist[i].ID == myid )
                                         {
                                             sprintf(yellmessage,"*** %s yelled ***: %s\n",userlist[i].name,&linebuff[5]);
                                             break;
                                         }
                                     }
-                                    GlobalMessage(servsockfd,yellmessage);
+                                    GlobalMessage(servsockfd,yellmessage,userlist);
                                 }
                                 else if( !strncmp(linebuff,"tell ",5) )
                                 {
                                     char tellmessage[102400];
                                     for( i = 0 ; i < useridx ; i++ )
                                     {
-                                        if( userlist[i].status == 1 && userlist[i].fd == fdptr )
+                                        if( userlist[i].status == 1 && userlist[i].ID == myid )
                                         {
                                             break;
                                         }
@@ -349,7 +464,8 @@ int main( int argc, char *argv[] )
                                     if( userlist[tellid].status )
                                     {
                                         sprintf(tellmessage,"*** %s told you ***: %s\n",userlist[fromid].name,&linebuff[i]);
-                                        send(userlist[tellid].fd,tellmessage,strlen(tellmessage),0);
+                                        //send(userlist[tellid].fd,tellmessage,strlen(tellmessage),0);
+                                        strcat(userlist[tellid].mesg,tellmessage);
                                     }
                                     else
                                     {
@@ -362,7 +478,7 @@ int main( int argc, char *argv[] )
                                 {
                                     for( i = 0 ; i < useridx ; i++ )
                                     {
-                                        if( userlist[i].status == 1 && userlist[i].fd == fdptr )
+                                        if( userlist[i].status == 1 && userlist[i].ID == myid )
                                         {
                                             break;
                                         }
@@ -378,7 +494,7 @@ int main( int argc, char *argv[] )
                                     char printenvmessage[1024];
                                     for( i = 0 ; i < useridx ; i++ )
                                     {
-                                        if( userlist[i].status == 1 && userlist[i].fd == fdptr )
+                                        if( userlist[i].status == 1 && userlist[i].ID == myid )
                                         {
                                             break;
                                         }
@@ -391,7 +507,7 @@ int main( int argc, char *argv[] )
                                 {
                                     for( i = 1 ; i < useridx ; i++ )
                                     {
-                                        if( userlist[i].status == 1 && userlist[i].fd == fdptr )
+                                        if( userlist[i].status == 1 && userlist[i].ID == myid )
                                         {
                                             break;
                                         }
@@ -552,7 +668,7 @@ int parsingCommand( user* ulist, plist* plptr, char *instr, char** out, int serv
                free(*output);
            }
 
-           if( *retmessage != NULL ) GlobalMessage(serversock,*retmessage);
+           if( *retmessage != NULL ) GlobalMessage(serversock,*retmessage,ulist);
            free(tok);
            free(output);
            tok = malloc(2*sizeof(char));
@@ -599,7 +715,7 @@ int parsingCommand( user* ulist, plist* plptr, char *instr, char** out, int serv
 
            push_plist(plptr,*output,pipecounter);
            
-           if( *retmessage != NULL ) GlobalMessage(serversock,*retmessage);
+           if( *retmessage != NULL ) GlobalMessage(serversock,*retmessage,ulist);
 
            while( args > 0 )
            {
@@ -851,24 +967,34 @@ int execCommand( user* ulist, plist* plptr, char **argv, int args, char **outstr
     return EXIT_SUCCESS;
 }
 
-void welcomeMessage( int servsockfd, int clisockfd, struct sockaddr_in* cli_addr )
+void welcomeMessage( int servsockfd, int clisockfd, struct sockaddr_in* cli_addr, user* ulist )
 {
     int fdptr;
     char message[1024];
     sprintf(message,"*** User '(no name)' entered from %s/%d. ***\n",inet_ntoa(cli_addr->sin_addr), cli_addr->sin_port);
-    for( fdptr = 0 ; fdptr < FD_SETSIZE ; fdptr++ )
-    {
-        if( fdptr != servsockfd ) send( fdptr, message, strlen(message), 0);
-    }
+    GlobalMessage(servsockfd,message,ulist );
 }
 
-void GlobalMessage( int servsockfd, char* message )
+void GlobalMessage( int servsockfd, char* message, user* ulist )
 {
-    int fdptr;
+    int i;
+    for( i = 1 ; i < 1024 ; i ++ )
+    {
+        if( ulist[i].status == 1 && strlen(ulist[i].mesg) == 0 )
+        {
+            strcat( ulist[i].mesg, message );
+        }
+        else if ( ulist[i].status == 1 )
+        {
+            i--;
+        }
+    }
+/*    int fdptr;
     for( fdptr = 0 ; fdptr < FD_SETSIZE ; fdptr++ )
     {
         if( fdptr != servsockfd ) send( fdptr, message, strlen(message), 0);
     }
+    */
 }
 
 void usersetenv( user *ulist, int uid, char* key, char* value)
