@@ -626,6 +626,7 @@ int inc_counter_plist( plist* plptr)
 
 int parsingCommand( user* ulist, plist* plptr, char *instr, char** out, int serversock, int sock, int myuid )
 {
+    printf("start parsing\n");
     int instrL = strlen(instr);
     int i;
     int args = 0;
@@ -641,18 +642,24 @@ int parsingCommand( user* ulist, plist* plptr, char *instr, char** out, int serv
     {
        if( i == instrL )
        {
+            printf("end parsing\n");
+           //if( tok  NULL && tok[0] == 0 )
            char **output = malloc(sizeof(char*));
            *output = NULL;
-           args++;
-           argv = realloc ( argv , (args+1) * sizeof( char * ) );
-           argv[args - 1] = malloc(sizeof(char)*tokL);
-           argv[args] = NULL;
-           memcpy(argv[args - 1],tok,tokL*sizeof(char));
+           if( tok != NULL && tok[0] != 0 )
+           {
+               args++;
+               argv = realloc ( argv , (args+1) * sizeof( char * ) );
+               argv[args - 1] = malloc(sizeof(char)*tokL);
+               argv[args] = NULL;
+               memcpy(argv[args - 1],tok,tokL*sizeof(char));
+           }
+           
            int tmpsock = sock;
 
            if( *retmessage != NULL ) free(*retmessage);
            *retmessage = NULL;
-           if(strlen(tok)>0)
+           if(1)
            {
                if( execCommand(ulist,plptr,argv,args,output,sock,myuid,retmessage) != 0 )
                {
@@ -764,6 +771,12 @@ int parsingCommand( user* ulist, plist* plptr, char *instr, char** out, int serv
 
 int execCommand( user* ulist, plist* plptr, char **argv, int args, char **outstr, const int sock, int myuid, char** retmessage )
 {
+    char** testarg = argv;
+    int testi = 0;
+    for( testi = 0 ; testarg[testi] != NULL ; testi ++ )
+    {
+        printf("%d='%s'\n",testi,testarg[testi]);
+    }
     if( !strcmp(argv[0],"setenv") )
     {
         setenv(argv[1],argv[2],1);

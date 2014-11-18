@@ -349,6 +349,7 @@ int main( int argc, char *argv[] )
                                     int tellid = atoi(&linebuff[5]) ;
                                     if( userlist[tellid].status )
                                     {
+                                        //printf("%d %d",tellid,userlist[tellid].status );
                                         sprintf(tellmessage,"*** %s told you ***: %s\n",userlist[fromid].name,&linebuff[i]);
                                         send(userlist[tellid].fd,tellmessage,strlen(tellmessage),0);
                                     }
@@ -513,23 +514,24 @@ int parsingCommand( user* ulist, plist* plptr, char *instr, char** out, int serv
     
     for( i = 0 ; i <= instrL ; i++ )
     {
-       // printf("i=%d\n",i);
        if( i == instrL )
        {
            char **output = malloc(sizeof(char*));
            *output = NULL;
-           args++;
-           argv = realloc ( argv , (args+1) * sizeof( char * ) );
-           argv[args - 1] = malloc(sizeof(char)*tokL);
-           argv[args] = NULL;
-           memcpy(argv[args - 1],tok,tokL*sizeof(char));
-        //   printf("arg[%d] = %s\n",args,argv[args - 1]);
+           if( tok != NULL && tok[0] != 0 )
+           {
+               printf("error\n");
+               args++;
+               argv = realloc ( argv , (args+1) * sizeof( char * ) );
+               argv[args - 1] = malloc(sizeof(char)*tokL);
+               argv[args] = NULL;
+               memcpy(argv[args - 1],tok,tokL*sizeof(char));
+           }
            int tmpsock = sock;
-        //   printf("%d\n",sock);
 
            if( *retmessage != NULL ) free(*retmessage);
            *retmessage = NULL;
-           if(strlen(tok)>0)
+           if(args>0)
            {
                if( execCommand(ulist,plptr,argv,args,output,sock,myuid,retmessage) != 0 )
                {
@@ -541,14 +543,11 @@ int parsingCommand( user* ulist, plist* plptr, char *instr, char** out, int serv
                }
            }
            sock = tmpsock;
-        //   printf("%d\n",sock);
            if(*output!=NULL)
            {
-        //       printf("send : \n%s\n",*output);
                send(sock,*output,strlen(*output),0);
                free(*output);
            }
-        //   printf("send end\n");
 
            if( *retmessage != NULL ) GlobalMessage(serversock,*retmessage);
            free(tok);
@@ -575,7 +574,6 @@ int parsingCommand( user* ulist, plist* plptr, char *instr, char** out, int serv
                strncpy(tmp,&instr[i-j],j);
                pipecounter = atoi(tmp);
            }
-        //   printf("PC=%d\n",pipecounter);
            int tmpsock = sock;
            if( *retmessage != NULL ) free(*retmessage);
            *retmessage = NULL;
@@ -584,7 +582,6 @@ int parsingCommand( user* ulist, plist* plptr, char *instr, char** out, int serv
                sock = tmpsock;
                while( args > 0 )
                {
-        //        printf("free %s.\n",argv[args-1]);
                 free(argv[args-1]);
                 args--;
                }
@@ -603,7 +600,6 @@ int parsingCommand( user* ulist, plist* plptr, char *instr, char** out, int serv
 
            while( args > 0 )
            {
-         //      printf("free %s.\n",argv[args-1]);
                free(argv[args-1]);
                args--;
            }
@@ -626,7 +622,6 @@ int parsingCommand( user* ulist, plist* plptr, char *instr, char** out, int serv
            argv[args - 1] = malloc(sizeof(char)*tokL);
            memcpy(argv[args - 1],tok,tokL*sizeof(char));
            argv[args] = NULL;
-        //   printf("arg[%d] = %s\n",args,argv[args - 1]);
            free(tok);
            tok = malloc(2*sizeof(char));
            tok[0] = 0;
