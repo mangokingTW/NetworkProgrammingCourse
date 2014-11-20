@@ -945,32 +945,43 @@ int execCommand( user* ulist, plist* plptr, char **argv, int args, char **outstr
         if( *outstr != NULL ) free(*outstr);
         if( touser )
         {
-            printf("piping to user ....\n");
-            int i;
-            for( i = 0 ; i < 10 ; i++ )
-                if ( ulist[touid].mpbuff[i].from == myuid )
-                {
-                    char errmessage[256];
-                    sprintf(errmessage,"*** Error: the pipe #%d->#%d already exists. ***\n",myuid,touid);
-                    send(ulist[myuid].fd,errmessage,strlen(errmessage),0);
-                    free(output);
-                    return EXIT_FAILURE;
-                }
-            for( i = 0 ; i < 10 ; i++ )
-                if ( ulist[touid].mpbuff[i].from == -1 ) break;
-            if( *retmessage == NULL ) *retmessage = malloc(sizeof(char)*1024);
-            sprintf(*retmessage,"*** %s (#%d) just piped '",ulist[myuid].name,myuid);
-            int j ;
-            for( j = 0 ; argv[j] != NULL ; j++ )
+            if( ulist[touid].status )
             {
-                strcat(*retmessage,argv[j]);
-                strcat(*retmessage," ");
+                printf("piping to user ....\n");
+                int i;
+                for( i = 0 ; i < 10 ; i++ )
+                    if ( ulist[touid].mpbuff[i].from == myuid )
+                    {
+                        char errmessage[256];
+                        sprintf(errmessage,"*** Error: the pipe #%d->#%d already exists. ***\n",myuid,touid);
+                        send(ulist[myuid].fd,errmessage,strlen(errmessage),0);
+                        free(output);
+                        return EXIT_FAILURE;
+                    }
+                for( i = 0 ; i < 10 ; i++ )
+                    if ( ulist[touid].mpbuff[i].from == -1 ) break;
+                if( *retmessage == NULL ) *retmessage = malloc(sizeof(char)*1024);
+                sprintf(*retmessage,"*** %s (#%d) just piped '",ulist[myuid].name,myuid);
+                int j ;
+                for( j = 0 ; argv[j] != NULL ; j++ )
+                {
+                    strcat(*retmessage,argv[j]);
+                    strcat(*retmessage," ");
+                }
+                sprintf(*retmessage,"%s>%d' to %s (#%d) ***\n",*retmessage,touid,ulist[touid].name,touid);
+                strncpy(ulist[touid].mpbuff[i].message,output,1024);
+                ulist[touid].mpbuff[i].from = myuid;
+                ulist[touid].pipemesnum++;
+                printf("Completed in %d buffer! %s\n",i,ulist[touid].mpbuff[i].message);
             }
-            sprintf(*retmessage,"%s>%d' to %s (#%d) ***\n",*retmessage,touid,ulist[touid].name,touid);
-            strncpy(ulist[touid].mpbuff[i].message,output,1024);
-            ulist[touid].mpbuff[i].from = myuid;
-            ulist[touid].pipemesnum++;
-            printf("Completed in %d buffer! %s\n",i,ulist[touid].mpbuff[i].message);
+            else
+            {
+                char errmessage[256];
+                sprintf(errmessage,"*** Error: user #%d does not exist yet. ***\n",touid);
+                send(ulist[myuid].fd,errmessage,strlen(errmessage),0);
+                free(output);
+                return EXIT_FAILURE;
+            }
         }
         else
         {
