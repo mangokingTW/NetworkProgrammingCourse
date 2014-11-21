@@ -372,13 +372,28 @@ int main( int argc, char *argv[] )
                                     if( userlist[i].status == 1 && userlist[i].ID == myid )
                                     {
                                         sprintf(exitmessage,"*** User '%s' left. ***\n",userlist[i].name);
+                                        GlobalMessage(servsockfd,exitmessage,userlist);
                                         userlist[i].status = 0;
                                         break;
                                     }
                                 }
+                                for( i = 0 ; i < useridx ; i++ )
+                                {
+                                    if( userlist[i].status == 1 )
+                                    {
+                                        int j;
+                                        for ( j = 0 ; j < 10 ; j ++ )
+                                        {
+                                            if( userlist[i].mpbuff[j].from == myid )
+                                            {
+                                                userlist[i].mpbuff[j].from = -1;
+                                                bzero(userlist[i].mpbuff[j].message,1024);
+                                            }
+                                        }
+                                    }
+                                } 
                                 printf("B\n");
                                 close(fdptr);
-                                GlobalMessage(servsockfd,exitmessage,userlist);
                                 printf("C\n");
                                 exit(0);
                             }
@@ -401,6 +416,9 @@ int main( int argc, char *argv[] )
                                         }
                                     }
                                     send( fdptr, whomessage, strlen(whomessage), 0 );
+                                    char **input = malloc( sizeof(char*));
+                                    *input = NULL;
+                                    pop_plist(pipelist[fdptr],input) ;
                                 }
                                 else if( !strncmp(linebuff,"name ",5) )
                                 {
@@ -430,6 +448,9 @@ int main( int argc, char *argv[] )
                                             }
                                         }
                                         sprintf(namemessage,"*** User from %s/%d is named '%s'. ***\n",userlist[i].IP,userlist[i].port,userlist[i].name);
+                                        char **input = malloc( sizeof(char*));
+                                        *input = NULL;
+                                        pop_plist(pipelist[fdptr],input) ;
                                         GlobalMessage(servsockfd,namemessage,userlist);
                                         while( strlen(userlist[myid].mesg) != 0 );
                                     }
@@ -445,6 +466,9 @@ int main( int argc, char *argv[] )
                                             break;
                                         }
                                     }
+                                    char **input = malloc( sizeof(char*));
+                                    *input = NULL;
+                                    pop_plist(pipelist[fdptr],input) ;
                                     GlobalMessage(servsockfd,yellmessage,userlist);
                                         while( strlen(userlist[myid].mesg) != 0 );
                                 }
@@ -468,6 +492,9 @@ int main( int argc, char *argv[] )
                                         sprintf(tellmessage,"*** %s told you ***: %s\n",userlist[fromid].name,&linebuff[i]);
                                         //send(userlist[tellid].fd,tellmessage,strlen(tellmessage),0);
                                         strcat(userlist[tellid].mesg,tellmessage);
+                                        char **input = malloc( sizeof(char*));
+                                        *input = NULL;
+                                        pop_plist(pipelist[fdptr],input) ;
                                     }
                                     else
                                     {
@@ -490,6 +517,9 @@ int main( int argc, char *argv[] )
                                     linebuff[i] = 0;
                                     i++;
                                     usersetenv(userlist,uid,&linebuff[7],&linebuff[i]);
+                                    char **input = malloc( sizeof(char*));
+                                    *input = NULL;
+                                    pop_plist(pipelist[fdptr],input) ;
                                 }
                                 else if( !strncmp(linebuff,"printenv ",9) )
                                 {
@@ -504,6 +534,9 @@ int main( int argc, char *argv[] )
                                     int uid = i;
                                     sprintf(printenvmessage,"%s=%s\n",&linebuff[9],usergetenv(userlist,uid,&linebuff[9]));
                                     send(fdptr,printenvmessage,strlen(printenvmessage),0);
+                                    char **input = malloc( sizeof(char*));
+                                    *input = NULL;
+                                    pop_plist(pipelist[fdptr],input) ;
                                 }
                                 else
                                 {
@@ -742,7 +775,7 @@ int parsingCommand( user* ulist, plist* plptr, char *instr, char** out, int serv
            tok[0] = 0;
            tok[1] = 0;
            tokL = 1;
-           if( i  == instrL ) break;
+           if( i+1  == instrL ) break;
        }
        else if( instr[i] == ' ' || instr[i] == '\t' )
        {
@@ -915,6 +948,8 @@ int execCommand( user* ulist, plist* plptr, char **argv, int args, char **outstr
                 close(pipe2[1]);
                 wait(&status);
                 free(output);
+                push_plist(plptr,*input,0);
+                inc_counter_plist(plptr);
                 return EXIT_FAILURE;
             }
         }
@@ -956,6 +991,8 @@ int execCommand( user* ulist, plist* plptr, char **argv, int args, char **outstr
                         sprintf(errmessage,"*** Error: the pipe #%d->#%d already exists. ***\n",myuid,touid);
                         send(ulist[myuid].fd,errmessage,strlen(errmessage),0);
                         free(output);
+                        push_plist(plptr,*input,0);
+                        inc_counter_plist(plptr);
                         return EXIT_FAILURE;
                     }
                 for( i = 0 ; i < 10 ; i++ )
@@ -980,6 +1017,8 @@ int execCommand( user* ulist, plist* plptr, char **argv, int args, char **outstr
                 sprintf(errmessage,"*** Error: user #%d does not exist yet. ***\n",touid);
                 send(ulist[myuid].fd,errmessage,strlen(errmessage),0);
                 free(output);
+                push_plist(plptr,*input,0);
+                inc_counter_plist(plptr);
                 return EXIT_FAILURE;
             }
         }

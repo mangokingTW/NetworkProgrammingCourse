@@ -256,18 +256,36 @@ int main( int argc, char *argv[] )
                             if( !strncmp(linebuff,"exit",4) )
                             {
                                 char exitmessage[256];
+                                int myuid ;
                                 for( i = 0 ; i < useridx ; i++ )
                                 {
                                     if( userlist[i].status == 1 && userlist[i].fd == fdptr )
                                     {
                                         sprintf(exitmessage,"*** User '%s' left. ***\n",userlist[i].name);
                                         userlist[i].status = 0;
+                                        myuid=i;
                                         break;
                                     }
                                 }
+                                for( i = 0 ; i < useridx ; i++ )
+                                {
+                                    if( userlist[i].status == 1 )
+                                    {
+                                        int j;
+                                        for( j = 0 ; j < 10 ; j++ )
+                                        {
+                                            if( userlist[i].mpbuff[j].from == myuid )
+                                            {
+                                                userlist[i].mpbuff[j].from = -1;
+                                                bzero(userlist[i].mpbuff[j].message,1024);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                GlobalMessage(servsockfd,exitmessage);
                                 close(fdptr);
                                 FD_CLR(fdptr,&infd);
-                                GlobalMessage(servsockfd,exitmessage);
                             }
                             else 
                             {
@@ -287,6 +305,9 @@ int main( int argc, char *argv[] )
                                         }
                                     }
                                     send( fdptr, whomessage, strlen(whomessage), 0 );
+                                    char **input = malloc( sizeof(char*));
+                                    *input = NULL;
+                                    pop_plist(pipelist[fdptr],input) ;
                                 }
                                 else if( !strncmp(linebuff,"name ",5) )
                                 {
@@ -317,6 +338,9 @@ int main( int argc, char *argv[] )
                                         }
                                         sprintf(namemessage,"*** User from %s/%d is named '%s'. ***\n",userlist[i].IP,userlist[i].port,userlist[i].name);
                                         GlobalMessage(servsockfd,namemessage);
+                                        char **input = malloc( sizeof(char*));
+                                        *input = NULL;
+                                        pop_plist(pipelist[fdptr],input) ;
                                     }
                                 }
                                 else if( !strncmp(linebuff,"yell ",5) )
@@ -331,6 +355,9 @@ int main( int argc, char *argv[] )
                                         }
                                     }
                                     GlobalMessage(servsockfd,yellmessage);
+                                    char **input = malloc( sizeof(char*));
+                                    *input = NULL;
+                                    pop_plist(pipelist[fdptr],input) ;
                                 }
                                 else if( !strncmp(linebuff,"tell ",5) )
                                 {
@@ -352,6 +379,9 @@ int main( int argc, char *argv[] )
                                         //printf("%d %d",tellid,userlist[tellid].status );
                                         sprintf(tellmessage,"*** %s told you ***: %s\n",userlist[fromid].name,&linebuff[i]);
                                         send(userlist[tellid].fd,tellmessage,strlen(tellmessage),0);
+                                        char **input = malloc( sizeof(char*));
+                                        *input = NULL;
+                                        pop_plist(pipelist[fdptr],input) ;
                                     }
                                     else
                                     {
@@ -374,6 +404,9 @@ int main( int argc, char *argv[] )
                                     linebuff[i] = 0;
                                     i++;
                                     usersetenv(userlist,uid,&linebuff[7],&linebuff[i]);
+                                    char **input = malloc( sizeof(char*));
+                                    *input = NULL;
+                                    pop_plist(pipelist[fdptr],input) ;
                                 }
                                 else if( !strncmp(linebuff,"printenv ",9) )
                                 {
@@ -388,6 +421,9 @@ int main( int argc, char *argv[] )
                                     int uid = i;
                                     sprintf(printenvmessage,"%s=%s\n",&linebuff[9],usergetenv(userlist,uid,&linebuff[9]));
                                     send(fdptr,printenvmessage,strlen(printenvmessage),0);
+                                    char **input = malloc( sizeof(char*));
+                                    *input = NULL;
+                                    pop_plist(pipelist[fdptr],input) ;
                                 }
                                 else
                                 {
@@ -779,6 +815,8 @@ int execCommand( user* ulist, plist* plptr, char **argv, int args, char **outstr
                 close(pipe2[1]);
                 wait(&status);
                 free(output);
+                push_plist(plptr,*input,0);
+                inc_counter_plist(plptr);
                 return EXIT_FAILURE;
             }
         }
@@ -820,6 +858,8 @@ int execCommand( user* ulist, plist* plptr, char **argv, int args, char **outstr
                         sprintf(errmessage,"*** Error: the pipe #%d->#%d already exists. ***\n",myuid,touid);
                         send(ulist[myuid].fd,errmessage,strlen(errmessage),0);
                         free(output);
+                        push_plist(plptr,*input,0);
+                        inc_counter_plist(plptr);
                         return EXIT_FAILURE;
                     }
                 for( i = 0 ; i < 10 ; i++ )
@@ -844,6 +884,8 @@ int execCommand( user* ulist, plist* plptr, char **argv, int args, char **outstr
                 sprintf(errmessage,"*** Error: user #%d does not exist yet. ***\n",touid);
                 send(ulist[myuid].fd,errmessage,strlen(errmessage),0);
                 free(output);
+                push_plist(plptr,*input,0);
+                inc_counter_plist(plptr);
                 return EXIT_FAILURE;
             }
         }
